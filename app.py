@@ -5,30 +5,15 @@ logging.basicConfig(level=logging.INFO)
 HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")  # optional / for gated models
 CHUNK = 2**20                                     # 1 MB
 
-import time
-import random
-
 def _download(url, dest):
     headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
-    retry_count = 0
-    max_retries = 5
-    while retry_count < max_retries:
-        try:
-            with requests.get(url, headers=headers, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                with open(dest, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=CHUNK):
-                        if chunk:
-                            f.write(chunk)
-            break
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                retry_count += 1
-                delay = 2**retry_count + random.uniform(0, 1)
-                logging.info(f"Rate limit exceeded. Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                raise
+    with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(chunk_size=CHUNK):
+                if chunk:
+                    f.write(chunk)
+
 
 
 def _needs_download(path, expected_mb: int):
