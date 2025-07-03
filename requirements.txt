@@ -5,7 +5,6 @@ llama-cpp-python==0.2.35
 fer
 opencv-python-headless
 opensmile==2.5.1
-librosa
 soundfile
 numpy
 scikit-learn
