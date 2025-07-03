@@ -1,32 +1,45 @@
-import os
-import requests
-import logging
+import os, requests, hashlib, streamlit as st, logging
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 
-# Download models
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")  # optional / for gated models
+CHUNK = 2**20                                     # 1 MB
+
+def _download(url, dest):
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(chunk_size=CHUNK):
+                if chunk:
+                    f.write(chunk)
+
+def _needs_download(path, expected_mb: int):
+    return (not os.path.exists(path)) or os.path.getsize(path) < expected_mb * 2**20 * 0.9
+
 def download_models():
-    tinyllama_url = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1B-chat.Q4_K_M.gguf"
-    tinyllama_path = "models/tinyllama-1.1B-chat.Q4_K_M.gguf"
+    os.makedirs("models", exist_ok=True)
 
-    voice_svm_url = "https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib"
-    voice_svm_path = "models/voice_svm.joblib"
+    models = [
+        ("https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/"
+         "tinyllama-1.1B-chat.Q4_K_M.gguf",
+         "models/tinyllama-1.1B-chat.Q4_K_M.gguf",
+         520),                       # MB
+        ("https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib",
+         "models/voice_svm.joblib",
+         3),                         # MB
+    ]
 
-    try:
-        if not os.path.exists(tinyllama_path):
-            response = requests.get(tinyllama_url)
-            with open(tinyllama_path, "wb") as f:
-                f.write(response.content)
-            logging.info("TinyLlama model downloaded successfully")
-        if not os.path.exists(voice_svm_path):
-            response = requests.get(voice_svm_url)
-            with open(voice_svm_path, "wb") as f:
-                f.write(response.content)
-            logging.info("Voice SVM model downloaded successfully")
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error downloading models: {e}")
+    with st.spinner("⏬ Downloading models (first run only)…"):
+        for url, path, size_mb in models:
+            if _needs_download(path, size_mb):
+                logging.info(f"Downloading {os.path.basename(path)}…")
+                _download(url, path)
+                logging.info(f"Saved → {path}")
+            else:
+                logging.info(f"{os.path.basename(path)} already present.")
 
+# Call once when script starts
 download_models()
 
 
