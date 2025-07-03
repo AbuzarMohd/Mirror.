@@ -7,13 +7,14 @@ CHUNK = 2**20                                     # 1 MB
 
 def _download(url, dest):
     headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    logging.info(f"Using headers: {headers}")  # Add this line for debugging
     with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+        logging.info(f"Status Code: {r.status_code}")  # Add this line
         r.raise_for_status()
         with open(dest, "wb") as f:
             for chunk in r.iter_content(chunk_size=CHUNK):
                 if chunk:
                     f.write(chunk)
-
 
 
 def _needs_download(path, expected_mb: int):
