@@ -57,6 +57,7 @@ from components.audio_rec import audio_recorder
 from components.mood_chart import draw_chart
 
 st.set_page_config("🧬 Emotion Mirror (CPU‑only)", layout="wide")
+modal_logits = {}
 mem = memory.ChatMemory()                 # session‑level memory
 
 st.title("🧬 Emotion Mirror – Reflect & Chat (CPU Edition)")
