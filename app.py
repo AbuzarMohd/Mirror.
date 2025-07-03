@@ -1,3 +1,37 @@
+import os
+import requests
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
+# Download models
+def download_models():
+    tinyllama_url = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1B-chat.Q4_K_M.gguf"
+    tinyllama_path = "models/tinyllama-1.1B-chat.Q4_K_M.gguf"
+
+    voice_svm_url = "https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib"
+    voice_svm_path = "models/voice_svm.joblib"
+
+    try:
+        if not os.path.exists(tinyllama_path):
+            response = requests.get(tinyllama_url)
+            with open(tinyllama_path, "wb") as f:
+                f.write(response.content)
+            logging.info("TinyLlama model downloaded successfully")
+        if not os.path.exists(voice_svm_path):
+            response = requests.get(voice_svm_url)
+            with open(voice_svm_path, "wb") as f:
+                f.write(response.content)
+            logging.info("Voice SVM model downloaded successfully")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error downloading models: {e}")
+
+download_models()
+
+
+
+
 # app.py
 import streamlit as st, datetime as dt
 from pipelines import text_distilbert as txt
