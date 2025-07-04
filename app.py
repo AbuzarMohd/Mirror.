@@ -1,107 +1,114 @@
-import os, requests, hashlib, streamlit as st, logging
-
+# ─────────────────────────  part 1: tiny voice‑SVM download  ─────────────────────────
+import os, requests, logging, streamlit as st
 logging.basicConfig(level=logging.INFO)
 
-HF_TOKEN = st.secrets.get("HUGGINGFACEHUB_API_TOKEN", None)  # optional / for gated models
-CHUNK = 2**20                                     # 1 MB
-
-def _download(url, dest):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
-    logging.info(f"Using headers: {headers}")  # Add this line for debugging
-    with requests.get(url, headers=headers, stream=True, timeout=60) as r:
-        logging.info(f"Status Code: {r.status_code}")  # Add this line
+CHUNK = 2**20          # 1 MB
+def _download(url: str, dest: str):
+    with requests.get(url, stream=True, timeout=60) as r:
         r.raise_for_status()
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=CHUNK):
-                if chunk:
-                    f.write(chunk)
+            for c in r.iter_content(CHUNK):
+                f.write(c)
 
+def _need(path: str, mb: int) -> bool:
+    return (not os.path.exists(path)) or os.path.getsize(path) < mb * 2**20 * 0.9
 
-def _needs_download(path, expected_mb: int):
-    return (not os.path.exists(path)) or os.path.getsize(path) < expected_mb * 2**20 * 0.9
-
-def download_models():
+def ensure_voice_svm():
     os.makedirs("models", exist_ok=True)
+    url  = "https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib"
+    path = "models/voice_svm.joblib"
+    if _need(path, 3):
+        with st.spinner("⏬ Downloading voice‑SVM (first run)…"):
+            logging.info("Downloading voice_svm.joblib …")
+            _download(url, path)
+            logging.info("Saved → models/voice_svm.joblib")
+ensure_voice_svm()
 
-    models = [
-        ("https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/"
-         "tinyllama-1.1B-chat.Q4_K_M.gguf",
-         "models/tinyllama-1.1B-chat.Q4_K_M.gguf",
-         520),                       # MB
-        ("https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib",
-         "models/voice_svm.joblib",
-         3),                         # MB
-    ]
+# ─────────────────────────  part 2: TinyLLaMA via Transformers  ──────────────────────
+from transformers import pipeline
 
-    with st.spinner("⏬ Downloading models (first run only)…"):
-        for url, path, size_mb in models:
-            if _needs_download(path, size_mb):
-                logging.info(f"Downloading {os.path.basename(path)}…")
-                _download(url, path)
-                logging.info(f"Saved → {path}")
-            else:
-                logging.info(f"{os.path.basename(path)} already present.")
+@st.cache_resource(show_spinner="🔌 Loading TinyLLaMA …")
+def load_llm():
+    return pipeline(
+        "text-generation",
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        torch_dtype="auto",   # bfloat16 on Intel/AMD, fp32 fallback
+        device_map="auto"     # CPU on Streamlit Cloud
+    )
+llm = load_llm()
 
-# Call once when script starts
-download_models()
-
-
-
-
-# app.py
-import streamlit as st, datetime as dt
+# ─────────────────────────  part 3: emotion‑analysis imports  ────────────────────────
 from pipelines import text_distilbert as txt
-from pipelines import voice_osmile as voc
-from pipelines import face_fer as fac
+from pipelines import voice_osmile   as voc
+from pipelines import face_fer       as fac
 from pipelines import fuse
-from brain import llama_cpp_reply as bot
-from brain import memory
-from components.audio_rec import audio_recorder
+from brain     import memory
+from components.audio_rec  import audio_recorder
 from components.mood_chart import draw_chart
 
-st.set_page_config("🧬 Emotion Mirror (CPU‑only)", layout="wide")
-modal_logits = {}
-mem = memory.ChatMemory()                 # session‑level memory
+# ─────────────────────────  part 4: Streamlit UI  ────────────────────────────────────
+st.set_page_config("🧬 Emotion Mirror (TinyLLaMA)", layout="wide")
 
-st.title("🧬 Emotion Mirror – Reflect & Chat (CPU Edition)")
+modal_logits: dict[str, list] = {}
+mem = memory.ChatMemory()
 
-# ────────────────────────────────────────────────────────────
-# Layout: chat left, media right
+st.title("🪞 Emotion Mirror — TinyLLaMA edition")
+
 col_chat, col_media = st.columns([3, 2])
 
-# ---- TEXT INPUT -----------------------------------------------------------
+# ---- TEXT ----------------------------------------------------------
 with col_chat:
-    user_text = st.chat_input("Tell me what's on your mind…")
-    if user_text:
-        label_t, probs_t = txt.detect(user_text)
-        mem.add("user", user_text)
-        st.chat_message("user").write(user_text)
-        modal_logits = {"text": probs_t}
+    utext = st.chat_input("Share your thoughts …")
+    if utext:
+        lbl, prob = txt.detect(utext)
+        mem.add("user", utext)
+        st.chat_message("user").write(utext)
+        modal_logits["text"] = prob
 
-# ---- VOICE INPUT ----------------------------------------------------------
+# ---- VOICE ---------------------------------------------------------
 with col_media:
-    wav_bytes = audio_recorder("🎙️  Hold to record voice", pause_threshold=1.0)
-    if wav_bytes:
-        vlabel, vprobs = voc.detect(wav_bytes)
-        st.success(f"Voice emotion → {vlabel}")
-        modal_logits["voice"] = vprobs
+    wav = audio_recorder("🎙️ Record voice")
+    if wav:
+        vlab, vprob = voc.detect(wav)
+        st.success(f"Voice emotion → {vlab}")
+        modal_logits["voice"] = vprob
 
-# ---- WEBCAM INPUT ---------------------------------------------------------
+# ---- FACE ----------------------------------------------------------
 with col_media:
-    frame = st.camera_input("📸  Snap webcam photo")
-    if frame is not None and st.button("Analyse face"):
-        flabel, fprobs = fac.detect(frame.getvalue())
-        st.success(f"Face emotion → {flabel}")
-        modal_logits["face"] = fprobs
+    snap = st.camera_input("📸 Webcam photo")
+    if snap is not None and st.button("Analyse face"):
+        flab, fprob = fac.detect(snap.getvalue())
+        st.success(f"Face emotion → {flab}")
+        modal_logits["face"] = fprob
 
-# ---- GENERATE AI REPLY ----------------------------------------------------
-if mem.last_is_user():
+# ---- LLM RESPONSE ---------------------------------------------------
+if mem.last_is_user() and modal_logits:
     idx, fused = fuse.fuse(modal_logits)
-    emo_tag = fuse.LABELS[idx]            # human‑readable label
-    reply = bot.reply(mem.history, emo_tag)
+    emo = fuse.LABELS[idx]
+
+    chat_msgs = [
+        {"role": "system", "content": "You are Emotion Mirror, an empathetic AI."},
+        {"role": "assistant", "content": f"I sense you feel {emo}."},
+        {"role": "user", "content": utext},
+    ]
+    prompt = llm.tokenizer.apply_chat_template(
+        chat_msgs, tokenize=False, add_generation_prompt=True
+    )
+
+    with st.spinner("🤔 Reflecting …"):
+        out = llm(
+            prompt,
+            max_new_tokens=140,
+            do_sample=True,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.9,
+        )
+    reply = out[0]["generated_text"].split("</s>")[-1].strip()
+
     mem.add("ai", reply)
     st.chat_message("assistant").markdown(reply)
 
-# ---- (Optional) Mood trend -----------------------------------------------
-with st.expander("📊  Mood trend"):
+# ---- Mood trend (optional) -----------------------------------------
+with st.expander("📊 Mood trend"):
     draw_chart(mem.moodlog)
