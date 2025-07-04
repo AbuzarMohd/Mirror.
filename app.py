@@ -1,4 +1,4 @@
-'''import os, requests, hashlib, streamlit as st, logging
+import os, requests, hashlib, streamlit as st, logging
 
 logging.basicConfig(level=logging.INFO)
 
@@ -103,84 +103,5 @@ if mem.last_is_user():
     st.chat_message("assistant").markdown(reply)
 
 # ---- (Optional) Mood trend -----------------------------------------------
-with st.expander("📊  Mood trend"):
-    draw_chart(mem.moodlog)
-'''
-
-import os, streamlit as st, logging, datetime as dt
-from huggingface_hub import hf_hub_download
-from pipelines import text_distilbert as txt
-from pipelines import voice_osmile as voc
-from pipelines import face_fer as fac
-from pipelines import fuse
-from brain import llama_cpp_reply as bot
-from brain import memory
-from components.audio_rec import audio_recorder
-from components.mood_chart import draw_chart
-
-logging.basicConfig(level=logging.INFO)
-HF_TOKEN = st.secrets.get("HUGGINGFACEHUB_API_TOKEN", None)
-
-def download_models():
-    os.makedirs("models", exist_ok=True)
-    with st.spinner("⏬ Downloading models (first run only)…"):
-        try:
-            hf_hub_download(
-                repo_id="TheBloke/TinyLlama-1.1B-Chat-GGUF",
-                filename="tinyllama-1.1B-chat.Q4_K_M.gguf",
-                token=HF_TOKEN,
-                local_dir="models",
-                local_dir_use_symlinks=False
-            )
-            hf_hub_download(
-                repo_id="robinjia/emo_mirror_assets",
-                filename="voice_svm.joblib",
-                token=HF_TOKEN,
-                local_dir="models",
-                local_dir_use_symlinks=False
-            )
-        except Exception as e:
-            st.error(f"Model download failed: {e}")
-            raise
-
-download_models()
-
-st.set_page_config("🧬 Emotion Mirror (CPU‑only)", layout="wide")
-modal_logits = {}
-mem = memory.ChatMemory()
-
-st.title("🧬 Emotion Mirror – Reflect & Chat (CPU Edition)")
-col_chat, col_media = st.columns([3, 2])
-
-with col_chat:
-    user_text = st.chat_input("Tell me what's on your mind…")
-    if user_text:
-        label_t, probs_t = txt.detect(user_text)
-        mem.add("user", user_text)
-        st.chat_message("user").write(user_text)
-        modal_logits["text"] = probs_t
-
-with col_media:
-    wav_bytes = audio_recorder("🎙  Hold to record voice", pause_threshold=1.0)
-    if wav_bytes:
-        vlabel, vprobs = voc.detect(wav_bytes)
-        st.success(f"Voice emotion → {vlabel}")
-        modal_logits["voice"] = vprobs
-
-with col_media:
-    frame = st.camera_input("📸  Snap webcam photo")
-    if frame is not None and st.button("Analyse face"):
-        flabel, fprobs = fac.detect(frame.getvalue())
-        st.success(f"Face emotion → {flabel}")
-        modal_logits["face"] = fprobs
-
-if mem.last_is_user() and modal_logits:
-    idx, fused = fuse.fuse(modal_logits)
-    emo_tag = fuse.LABELS[idx]
-    reply = bot.reply(mem.history, emo_tag)
-    mem.add("ai", reply)
-    st.chat_message("assistant").markdown(reply)
-    mem.moodlog.append((dt.datetime.now(), float(fused[0]), float(fused[1])))
-
 with st.expander("📊  Mood trend"):
     draw_chart(mem.moodlog)
