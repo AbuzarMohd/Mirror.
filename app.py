@@ -1,4 +1,4 @@
-/*import os, requests, hashlib, streamlit as st, logging
+'''import os, requests, hashlib, streamlit as st, logging
 
 logging.basicConfig(level=logging.INFO)
 
@@ -105,7 +105,7 @@ if mem.last_is_user():
 # ---- (Optional) Mood trend -----------------------------------------------
 with st.expander("📊  Mood trend"):
     draw_chart(mem.moodlog)
-*/
+'''
 
 import os, streamlit as st, logging, datetime as dt
 from huggingface_hub import hf_hub_download
