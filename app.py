@@ -2,7 +2,7 @@ import os, requests, hashlib, streamlit as st, logging
 
 logging.basicConfig(level=logging.INFO)
 
-HF_TOKEN = os.st.secrets.get("HUGGINGFACEHUB_API_TOKEN", None)  # optional / for gated models
+HF_TOKEN = st.secrets.get("HUGGINGFACEHUB_API_TOKEN", None)  # optional / for gated models
 CHUNK = 2**20                                     # 1 MB
 
 def _download(url, dest):
