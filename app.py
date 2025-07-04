@@ -1,30 +1,34 @@
-# ─────────────────────────  part 1: tiny voice‑SVM download  ─────────────────────────
+# ─────────────────────────────  1 · VOICE‑SVM downloader  ─────────────────────────────
 import os, requests, logging, streamlit as st
 logging.basicConfig(level=logging.INFO)
 
-CHUNK = 2**20          # 1 MB
+CHUNK = 2**20  # 1 MB
+
 def _download(url: str, dest: str):
+    """Stream download without auth (public URL)."""
     with requests.get(url, stream=True, timeout=60) as r:
         r.raise_for_status()
-        with open(dest, "wb") as f:
-            for c in r.iter_content(CHUNK):
-                f.write(c)
+        with open(dest, "wb") as fp:
+            for chunk in r.iter_content(CHUNK):
+                if chunk:
+                    fp.write(chunk)
 
 def _need(path: str, mb: int) -> bool:
-    return (not os.path.exists(path)) or os.path.getsize(path) < mb * 2**20 * 0.9
+    return (not os.path.exists(path)) or os.path.getsize(path) < mb * 0.9 * 2**20
 
 def ensure_voice_svm():
     os.makedirs("models", exist_ok=True)
-    url  = "https://huggingface.co/robinjia/emo_mirror_assets/raw/main/voice_svm.joblib"
+    url  = "https://raw.githubusercontent.com/robinjia/tmp-assets/main/voice_svm.joblib"
     path = "models/voice_svm.joblib"
     if _need(path, 3):
         with st.spinner("⏬ Downloading voice‑SVM (first run)…"):
             logging.info("Downloading voice_svm.joblib …")
             _download(url, path)
             logging.info("Saved → models/voice_svm.joblib")
+
 ensure_voice_svm()
 
-# ─────────────────────────  part 2: TinyLLaMA via Transformers  ──────────────────────
+# ─────────────────────────────  2 · TinyLLaMA via Transformers  ───────────────────────
 from transformers import pipeline
 
 @st.cache_resource(show_spinner="🔌 Loading TinyLLaMA …")
@@ -32,12 +36,13 @@ def load_llm():
     return pipeline(
         "text-generation",
         model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        torch_dtype="auto",   # bfloat16 on Intel/AMD, fp32 fallback
-        device_map="auto"     # CPU on Streamlit Cloud
+        torch_dtype="auto",     # bfloat16 if CPU supports, else fp32
+        device_map="auto"       # CPU on Streamlit Cloud
     )
+
 llm = load_llm()
 
-# ─────────────────────────  part 3: emotion‑analysis imports  ────────────────────────
+# ─────────────────────────────  3 · Emotion pipelines & UI  ───────────────────────────
 from pipelines import text_distilbert as txt
 from pipelines import voice_osmile   as voc
 from pipelines import face_fer       as fac
@@ -46,26 +51,25 @@ from brain     import memory
 from components.audio_rec  import audio_recorder
 from components.mood_chart import draw_chart
 
-# ─────────────────────────  part 4: Streamlit UI  ────────────────────────────────────
-st.set_page_config("🧬 Emotion Mirror (TinyLLaMA)", layout="wide")
+st.set_page_config("🪞 Emotion Mirror – TinyLLaMA", layout="wide")
 
 modal_logits: dict[str, list] = {}
 mem = memory.ChatMemory()
 
-st.title("🪞 Emotion Mirror — TinyLLaMA edition")
+st.title("🪞 Emotion Mirror — TinyLLaMA Edition")
 
 col_chat, col_media = st.columns([3, 2])
 
-# ---- TEXT ----------------------------------------------------------
+# ---- TEXT ------------------------------------------------------------------
 with col_chat:
-    utext = st.chat_input("Share your thoughts …")
-    if utext:
-        lbl, prob = txt.detect(utext)
-        mem.add("user", utext)
-        st.chat_message("user").write(utext)
+    user_text = st.chat_input("Share what's on your mind …")
+    if user_text:
+        lbl, prob = txt.detect(user_text)
+        mem.add("user", user_text)
+        st.chat_message("user").write(user_text)
         modal_logits["text"] = prob
 
-# ---- VOICE ---------------------------------------------------------
+# ---- VOICE -----------------------------------------------------------------
 with col_media:
     wav = audio_recorder("🎙️ Record voice")
     if wav:
@@ -73,26 +77,26 @@ with col_media:
         st.success(f"Voice emotion → {vlab}")
         modal_logits["voice"] = vprob
 
-# ---- FACE ----------------------------------------------------------
+# ---- FACE ------------------------------------------------------------------
 with col_media:
-    snap = st.camera_input("📸 Webcam photo")
+    snap = st.camera_input("📸 Webcam snapshot")
     if snap is not None and st.button("Analyse face"):
         flab, fprob = fac.detect(snap.getvalue())
         st.success(f"Face emotion → {flab}")
         modal_logits["face"] = fprob
 
-# ---- LLM RESPONSE ---------------------------------------------------
+# ---- LLM REPLY -------------------------------------------------------------
 if mem.last_is_user() and modal_logits:
     idx, fused = fuse.fuse(modal_logits)
     emo = fuse.LABELS[idx]
 
-    chat_msgs = [
-        {"role": "system", "content": "You are Emotion Mirror, an empathetic AI."},
+    messages = [
+        {"role": "system", "content": "You are Emotion Mirror, an empathetic AI."},
         {"role": "assistant", "content": f"I sense you feel {emo}."},
-        {"role": "user", "content": utext},
+        {"role": "user", "content": user_text},
     ]
     prompt = llm.tokenizer.apply_chat_template(
-        chat_msgs, tokenize=False, add_generation_prompt=True
+        messages, tokenize=False, add_generation_prompt=True
     )
 
     with st.spinner("🤔 Reflecting …"):
@@ -105,10 +109,9 @@ if mem.last_is_user() and modal_logits:
             top_p=0.9,
         )
     reply = out[0]["generated_text"].split("</s>")[-1].strip()
-
     mem.add("ai", reply)
     st.chat_message("assistant").markdown(reply)
 
-# ---- Mood trend (optional) -----------------------------------------
+# ---- Mood chart ------------------------------------------------------------
 with st.expander("📊 Mood trend"):
     draw_chart(mem.moodlog)
