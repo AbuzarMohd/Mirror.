@@ -13,3 +13,4 @@ llvmlite==0.44.0
 numpy==1.26.4
 scikit-learn==1.4.2
 accelerate
+puthon_speech+features==0.6
