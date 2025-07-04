@@ -1,17 +1,34 @@
-# brain/llama_cpp_reply.py
-from llama_cpp import Llama
-import os, functools
+import streamlit as st
+from transformers import pipeline
 
-MODEL_PATH = os.path.join("models", "tinyllama-1.1B-chat.Q4_K_M.gguf")
+st.set_page_config(page_title="Emotion Mirror Chat", layout="wide")
 
-@functools.lru_cache(maxsize=1)
-def _load():
-    # adjust n_threads to your CPU cores (MacBook i5 ≈ 4 threads)
-    return Llama(model_path=MODEL_PATH, n_ctx=1536, n_threads=4)
+@st.cache_resource
+def load_model():
+    pipe = pipeline(
+        "text-generation",
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        torch_dtype="auto",
+        device_map="auto"
+    )
+    return pipe
 
-def reply(history: list[tuple[str,str]], emotion: str) -> str:
-    convo = "\n".join(f"{r.upper()}: {m}" for r, m in history[-6:])
-    prompt = (f"[INST]You are 'Emotion Mirror', an empathetic AI companion.\n"
-              f"Detected emotion: {emotion}\n{convo}\nAI:[/INST]")
-    out = _load()(prompt, max_tokens=140, stop=["[/INST]"])
-    return out["choices"][0]["text"].strip()
+pipe = load_model()
+
+st.title("🪞 Emotion Mirror (TinyLLaMA Powered)")
+
+system_prompt = st.text_input("System Prompt", value="You are a kind emotional support chatbot.")
+user_input = st.text_area("Your Message", height=200)
+
+if st.button("Generate Response"):
+    if user_input.strip():
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input},
+        ]
+        prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        with st.spinner("Thinking..."):
+            output = pipe(prompt, max_new_tokens=256, do_sample=True, temperature=0.7, top_k=50, top_p=0.95)
+        response = output[0]["generated_text"].split("</s>")[-1].strip()
+        st.markdown("### 🤖 Response")
+        st.success(response)
