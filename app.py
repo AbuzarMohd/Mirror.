@@ -85,10 +85,10 @@ if st.button("Generate Response"):
 
 import os, logging, streamlit as st
 from transformers import pipeline
-from pipelines import voice_sb  as voc   # ← NEW SpeechBrain pipeline
+from pipelines import voice_osmile  as voc   # ← NEW SpeechBrain pipeline
 # If you still want text / face analysis, import them here
-# from pipelines import text_distilbert as txt
-# from pipelines import face_fer         as fac
+ from pipelines import text_distilbert as txt
+ from pipelines import face_fer         as fac
 
 # ─────────────────────────────  Setup  ─────────────────────────────
 st.set_page_config(page_title="Emotion Mirror Chat", layout="wide")
