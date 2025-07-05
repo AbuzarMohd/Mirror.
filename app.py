@@ -82,7 +82,7 @@ if st.button("Generate Response"):
         st.markdown("### 🤖 Response")
         st.success(response)
 '''
-
+'''
 import os, logging, streamlit as st
 from transformers import pipeline
 from pipelines import voice_osmile  as voc   # ← NEW SpeechBrain pipeline
@@ -143,3 +143,89 @@ if st.button("Generate Response") and user_input.strip():
     response = output[0]["generated_text"].split("</s>")[-1].strip()
     st.markdown("### 🤖 Response")
     st.success(response)
+'''
+# app.py
+import os, logging, tempfile, numpy as np
+import streamlit as st
+from transformers import pipeline
+
+# modality pipelines
+from pipelines import text_distilbert as txt
+from pipelines import face_fer         as fac
+from pipelines import voice_osmile         as voc  # SpeechBrain wav2vec2 model
+
+from components.audio_rec  import audio_recorder
+from components.mood_chart import draw_chart
+
+# ────────────────────────────  CONFIG  ────────────────────────────
+st.set_page_config(page_title="🪞 Emotion Mirror – All Modalities", layout="wide")
+logging.basicConfig(level=logging.INFO)
+
+# ─────────────────────  TinyLLaMA chat model  ─────────────────────
+@st.cache_resource(show_spinner="🔄 Loading TinyLLaMA …")
+def load_chat():
+    return pipeline(
+        "text-generation",
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        torch_dtype="auto",
+        device_map="auto",   # CPU on Streamlit Cloud
+    )
+
+chat_pipe = load_chat()
+
+# ────────────────────────────  UI  ────────────────────────────────
+st.title("🪞 Emotion Mirror – Text · Voice · Face")
+
+modal_logits: dict[str, np.ndarray] = {}
+user_text   = ""
+
+col_text, col_voice, col_face = st.columns(3)
+
+# TEXT INPUT  ───────────────────────────────────────────────────────
+with col_text:
+    user_text = st.text_area("📝 Type your message")
+    if st.button("Analyse Text") and user_text.strip():
+        t_label, t_probs = txt.detect(user_text)
+        st.success(f"Text emotion → {t_label}")
+        modal_logits["text"] = t_probs
+
+# VOICE INPUT  ──────────────────────────────────────────────────────
+with col_voice:
+    wav_bytes = audio_recorder("🎙️ Record / Upload Voice")
+    if wav_bytes:
+        v_label, v_probs = voc.detect(wav_bytes)
+        st.success(f"Voice emotion → {v_label}")
+        modal_logits["voice"] = v_probs
+
+# FACE INPUT  ───────────────────────────────────────────────────────
+with col_face:
+    frame = st.camera_input("📸 Take a photo")
+    if frame is not None and st.button("Analyse Face"):
+        f_label, f_probs = fac.detect(frame.getvalue())
+        st.success(f"Face emotion → {f_label}")
+        modal_logits["face"] = f_probs
+
+# ───────────────  FUSE EMOTIONS & GENERATE REPLY  ─────────────────
+if modal_logits:
+    # average probabilities across available modalities
+    avg_probs = np.mean(list(modal_logits.values()), axis=0)
+    idx = int(np.argmax(avg_probs))
+    emotions = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+    detected_emotion = emotions[idx]
+
+    messages = [
+        {"role": "system", "content": f"You are a compassionate AI. Detected user emotion: {detected_emotion}."},
+        {"role": "user",   "content": user_text or "(User provided voice or face input)"},
+    ]
+    prompt = chat_pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+    with st.spinner("🤔 Reflecting …"):
+        out = chat_pipe(prompt, max_new_tokens=256, do_sample=True, temperature=0.7, top_k=50, top_p=0.9)
+    reply = out[0]["generated_text"].split("</s>")[-1].strip()
+
+    st.markdown("### 🤖 Response")
+    st.success(reply)
+
+# ─────────────────────────  MOOD CHART  ────────────────────────────
+with st.expander("📊 Mood Trends"):
+    draw_chart([])
