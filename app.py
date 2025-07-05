@@ -1,3 +1,4 @@
+'''
 import os
 import logging
 import requests
@@ -80,3 +81,65 @@ if st.button("Generate Response"):
         response = output[0]["generated_text"].split("</s>")[-1].strip()
         st.markdown("### 🤖 Response")
         st.success(response)
+'''
+
+import os, logging, streamlit as st
+from transformers import pipeline
+from pipelines import voice_sb  as voc   # ← NEW SpeechBrain pipeline
+# If you still want text / face analysis, import them here
+# from pipelines import text_distilbert as txt
+# from pipelines import face_fer         as fac
+
+# ─────────────────────────────  Setup  ─────────────────────────────
+st.set_page_config(page_title="Emotion Mirror Chat", layout="wide")
+logging.basicConfig(level=logging.INFO)
+
+# ─────────────────────────────  TinyLLaMA  ─────────────────────────
+@st.cache_resource(show_spinner="🔄 Loading TinyLLaMA…")
+def load_pipe():
+    return pipeline(
+        "text-generation",
+        model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        torch_dtype="auto",
+        device_map="auto"          # CPU on Streamlit Cloud
+    )
+
+llm = load_pipe()
+
+# ─────────────────────────────  UI  ─────────────────────────────
+st.title("🪞 Emotion Mirror – TinyLLaMA & SpeechBrain")
+
+system_prompt = st.text_input(
+    "System Prompt",
+    value="You are a kind emotional‑support chatbot.",
+)
+
+# ========== Voice recorder ==========
+wav_bytes = st.file_uploader("🎙️ Upload or record a WAV file for emotion check", type=["wav"])
+if wav_bytes:
+    vlabel, vscores = voc.detect(wav_bytes.read())
+    st.success(f"Detected voice emotion: **{vlabel}**")
+
+# ========== Text chat ==========
+user_input = st.text_area("Your Message", height=200)
+if st.button("Generate Response") and user_input.strip():
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_input},
+    ]
+    prompt = llm.tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+
+    with st.spinner("Thinking…"):
+        output = llm(
+            prompt,
+            max_new_tokens=256,
+            do_sample=True,
+            temperature=0.7,
+            top_k=50,
+            top_p=0.95,
+        )
+    response = output[0]["generated_text"].split("</s>")[-1].strip()
+    st.markdown("### 🤖 Response")
+    st.success(response)
